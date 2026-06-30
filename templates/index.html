@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ProdVision — Product Metadata Extraction</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="shell">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">PV</div>
+      <div>
+        <div class="brand-name">ProdVision</div>
+        <div class="brand-sub">Label-to-data pipeline</div>
+      </div>
+    </div>
+    <div class="pill" id="apiStatus">● engine ready</div>
+  </div>
+
+  <div class="hero">
+    <div class="hero-copy glass" style="padding:28px;">
+      <h1>Turn any product label into <span>structured data.</span></h1>
+      <p>Drop a photo of a package — food, cosmetics, or medicine — and ProdVision
+      cleans the image, reads the text, and pulls out brand, weight, MRP,
+      and dates automatically.</p>
+      <div class="pipeline-steps">
+        <span class="step-tag">01 · preprocess</span>
+        <span class="step-tag">02 · OCR</span>
+        <span class="step-tag">03 · parse attributes</span>
+        <span class="step-tag">04 · store + export</span>
+      </div>
+    </div>
+
+    <div class="glass" id="uploadCard">
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="fileInput" accept="image/*" multiple />
+        <div class="dropzone-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg>
+        </div>
+        <h3>Drag label images here (front, side, back)</h3>
+        <p>or click to browse · upload multiple images · JPG, PNG, WEBP</p>
+      </div>
+      <div class="progress-track" id="progressTrack">
+        <div class="progress-step" data-step="upload"><span class="dot"></span> Uploading images</div>
+        <div class="progress-step" data-step="preprocess"><span class="dot"></span> Preprocessing</div>
+        <div class="progress-step" data-step="ocr"><span class="dot"></span> Performing OCR</div>
+        <div class="progress-step" data-step="parse"><span class="dot"></span> Parsing attributes</div>
+        <div class="progress-step" data-step="done"><span class="dot"></span> Complete</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="results glass" id="resultsSection">
+    <div class="preview-panel">
+      <div id="previewCarousel" style="display:flex; gap:10px; overflow-x:auto; margin-bottom:10px;">
+        <!-- Image thumbnails will be added here -->
+      </div>
+      <img id="previewImage" src="" alt="Uploaded product label" />
+      <div class="preview-meta">
+        <span id="previewFilename">—</span>
+        <span id="previewOcrConf">OCR conf: —</span>
+      </div>
+    </div>
+    <div class="form-panel">
+      <h3>
+        Extracted attributes
+        <span class="confidence-badge" id="confidenceBadge">— %</span>
+      </h3>
+      <div class="field-grid">
+        <div class="field"><label>Brand</label><div class="value" id="f_brand">—</div></div>
+        <div class="field"><label>Product name</label><div class="value" id="f_product_name">—</div></div>
+        <div class="field"><label>Weight / Volume</label><div class="value" id="f_weight">—</div></div>
+        <div class="field"><label>MRP</label><div class="value" id="f_mrp">—</div></div>
+        <div class="field"><label>Mfg. date</label><div class="value" id="f_mfg_date">—</div></div>
+        <div class="field"><label>Exp. date</label><div class="value" id="f_exp_date">—</div></div>
+      </div>
+      <div class="actions-row">
+        <button class="btn primary" id="downloadPdfBtn">⬇ Download PDF</button>
+        <button class="btn emerald" id="downloadJsonBtn">⬇ Download JSON</button>
+        <button class="btn" id="newUploadBtn">+ New upload</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="glass table-section">
+    <div class="table-header">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h3>Previous extractions</h3>
+        <button class="btn" id="clearAllBtn" style="background-color:#ef4444; color:white;" onclick="clearAllHistory()">🗑 Clear All History</button>
+      </div>
+      <input type="text" class="search-box" id="searchBox" placeholder="Search by brand, product, file…" />
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="data-table" id="dataTable">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Brand</th>
+            <th>Product name</th>
+            <th>Weight</th>
+            <th>MRP</th>
+            <th>Exp. date</th>
+            <th>Confidence</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody">
+        </tbody>
+      </table>
+      <div class="empty-state" id="emptyState">No extractions yet — upload a label to get started.</div>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const progressTrack = document.getElementById('progressTrack');
+const resultsSection = document.getElementById('resultsSection');
+const tableBody = document.getElementById('tableBody');
+const emptyState = document.getElementById('emptyState');
+const searchBox = document.getElementById('searchBox');
+const toast = document.getElementById('toast');
+
+let allProducts = [];
+
+function showToast(msg, type) {
+  toast.textContent = msg;
+  toast.className = 'toast show ' + (type || '');
+  setTimeout(() => toast.className = 'toast', 3000);
+}
+
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', (e) => {
+  if (e.target.files.length) handleFiles(e.target.files);
+});
+
+function setStep(stepName, state) {
+  const el = progressTrack.querySelector(`[data-step="${stepName}"]`);
+  if (!el) return;
+  el.classList.remove('active', 'done');
+  if (state) el.classList.add(state);
+}
+
+function resetSteps() {
+  ['upload', 'preprocess', 'ocr', 'parse', 'done'].forEach(s => setStep(s, null));
+}
+
+async function handleFiles(fileList) {
+  resultsSection.classList.remove('active');
+  progressTrack.classList.add('active');
+  resetSteps();
+  setStep('upload', 'active');
+
+  const formData = new FormData();
+  for (let i = 0; i < fileList.length; i++) {
+    formData.append('files', fileList[i]);
+  }
+
+  // Build preview carousel
+  const carousel = document.getElementById('previewCarousel');
+  carousel.innerHTML = '';
+  for (let i = 0; i < fileList.length; i++) {
+    const thumbUrl = URL.createObjectURL(fileList[i]);
+    const thumb = document.createElement('div');
+    thumb.style.cssText = 'flex-shrink:0; width:60px; height:60px; border-radius:4px; overflow:hidden; cursor:pointer; border:2px solid transparent; transition:border 0.2s;';
+    thumb.innerHTML = `<img src="${thumbUrl}" style="width:100%; height:100%; object-fit:cover;" />`;
+    thumb.onclick = () => selectImage(fileList[i], thumbUrl, i);
+    carousel.appendChild(thumb);
+  }
+  
+  // Show first image initially
+  if (fileList.length > 0) {
+    const firstUrl = URL.createObjectURL(fileList[0]);
+    document.getElementById('previewImage').src = firstUrl;
+    document.getElementById('previewFilename').textContent = fileList[0].name;
+  }
+
+  // Simulate visible step progression
+  setTimeout(() => { setStep('upload', 'done'); setStep('preprocess', 'active'); }, 350);
+  setTimeout(() => { setStep('preprocess', 'done'); setStep('ocr', 'active'); }, 900);
+  setTimeout(() => { setStep('ocr', 'done'); setStep('parse', 'active'); }, 1500);
+
+  try {
+    const res = await fetch('/upload', { method: 'POST', body: formData });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Upload failed');
+    }
+    const data = await res.json();
+
+    setStep('parse', 'done');
+    setStep('done', 'done');
+
+    // Store results for display
+    window.currentBatchResults = data.individual_results || [];
+    window.currentBatchId = data.batch_id;
+
+    const mergedResult = data.result;
+    if (mergedResult) {
+      renderResult(mergedResult);
+    } else {
+      showToast('No successful extractions from this batch', 'warning');
+    }
+    
+    showToast(`Processed ${data.file_count} images`, 'success');
+    loadProducts();
+  } catch (err) {
+    showToast(err.message || 'Something went wrong', 'error');
+  } finally {
+    setTimeout(() => progressTrack.classList.remove('active'), 800);
+  }
+}
+
+function selectImage(file, url, index) {
+  document.getElementById('previewImage').src = url;
+  document.getElementById('previewFilename').textContent = file.name;
+
+  // Highlight selected thumbnail
+  const thumbs = document.querySelectorAll('#previewCarousel div');
+  thumbs.forEach((t, i) => {
+    t.style.borderColor = i === index ? '#4f46e5' : 'transparent';
+  });
+}
+
+function renderResult(data) {
+  resultsSection.classList.add('active');
+  const a = data.attributes || {};
+  document.getElementById('f_brand').textContent = a.brand || '—';
+  document.getElementById('f_product_name').textContent = a.product_name || '—';
+  document.getElementById('f_weight').textContent = a.weight || '—';
+  document.getElementById('f_mrp').textContent = a.mrp ? `₹${a.mrp}` : '—';
+  document.getElementById('f_mfg_date').textContent = a.mfg_date || '—';
+  document.getElementById('f_exp_date').textContent = a.exp_date || '—';
+  document.getElementById('previewOcrConf').textContent = `OCR conf: ${data.ocr_confidence}%`;
+
+  const badge = document.getElementById('confidenceBadge');
+  badge.textContent = `${data.confidence_score}%`;
+  badge.className = 'confidence-badge' + (data.confidence_score < 50 ? ' low' : '');
+
+  document.getElementById('downloadPdfBtn').onclick = () => window.open(`/products/${data.id}/pdf`, '_blank');
+  document.getElementById('downloadJsonBtn').onclick = () => window.open(`/products/${data.id}/json`, '_blank');
+}
+
+document.getElementById('newUploadBtn').onclick = () => {
+  resultsSection.classList.remove('active');
+  fileInput.value = '';
+};
+
+async function loadProducts() {
+  try {
+    const res = await fetch('/products');
+    allProducts = await res.json();
+    renderTable(allProducts);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function renderTable(products) {
+  tableBody.innerHTML = '';
+  if (!products.length) {
+    emptyState.style.display = 'block';
+    return;
+  }
+  emptyState.style.display = 'none';
+
+  products.forEach(p => {
+    const tr = document.createElement('tr');
+    const conf = p.confidence_score != null ? `${p.confidence_score}%` : '—';
+    tr.innerHTML = `
+      <td><img class="row-thumb" src="${p.filepath || ''}" onerror="this.style.visibility='hidden'" /></td>
+      <td>${p.brand || '—'}</td>
+      <td>${p.product_name || '—'}</td>
+      <td>${p.weight || '—'}</td>
+      <td>${p.mrp ? '₹' + p.mrp : '—'}</td>
+      <td>${p.exp_date || '—'}</td>
+      <td>${conf}</td>
+      <td>
+        <button class="icon-btn" title="Download PDF" onclick="window.open('/products/${p.id}/pdf','_blank')">⬇P</button>
+        <button class="icon-btn" title="Download JSON" onclick="window.open('/products/${p.id}/json','_blank')">⬇J</button>
+        <button class="icon-btn" title="Delete" onclick="deleteProduct(${p.id})" style="color:#ef4444;">🗑</button>
+      </td>
+    `;
+    tableBody.appendChild(tr);
+  });
+}
+
+async function deleteProduct(productId) {
+  if (!confirm('Are you sure you want to delete this record?')) return;
+  
+  try {
+    const res = await fetch(`/products/${productId}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Delete failed');
+    showToast('Record deleted', 'success');
+    loadProducts();
+  } catch (err) {
+    showToast('Failed to delete record: ' + err.message, 'error');
+  }
+}
+
+async function clearAllHistory() {
+  if (!confirm('Are you sure you want to delete ALL records? This cannot be undone.')) return;
+  
+  try {
+    const res = await fetch('/products', { method: 'DELETE' });
+    if (!res.ok) throw new Error('Clear all failed');
+    const data = await res.json();
+    showToast(`Deleted ${data.deleted_count} records`, 'success');
+    loadProducts();
+  } catch (err) {
+    showToast('Failed to clear history: ' + err.message, 'error');
+  }
+}
+
+searchBox.addEventListener('input', () => {
+  const q = searchBox.value.toLowerCase();
+  const filtered = allProducts.filter(p =>
+    (p.brand || '').toLowerCase().includes(q) ||
+    (p.product_name || '').toLowerCase().includes(q) ||
+    (p.filename || '').toLowerCase().includes(q)
+  );
+  renderTable(filtered);
+});
+
+loadProducts();
+</script>
+</body>
+</html>
