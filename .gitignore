@@ -1,30 +1,25 @@
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Virtual Environment
-venv/
-
 # Database
-database/products.db
+db/*.db
 
-# Uploaded Images
+# Generated PDFs
+output_pdf/
+
+# Test files
+test_api_8080.py
+
+# Uploaded images
 uploads/
 
-# Processed Images
+# Processed images
 processed/
 
-# JSON Output
+# Generated JSON
 output_json/
 
-# VS Code
-.vscode/
+# Python cache
+__pycache__/
+*.pyc
 
-# Environment Variables
-.env
-
-# OS Files
-.DS_Store
-Thumbs.db
+# Virtual environment
+.venv/
+venv/
